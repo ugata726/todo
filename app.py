@@ -53,6 +53,7 @@ elif choice == "一覧":
             with col4:
                 checked = st.checkbox("完了", value=bool(row["done"]), key=f"done_{row['id']}")
             with col5:
+                # 削除ボタン押下時はフラグだけ立てる
                 if st.button("削除", key=f"del_{row['id']}"):
                     c.execute("DELETE FROM tasks WHERE id=?", (row["id"],))
                     conn.commit()
@@ -69,11 +70,11 @@ elif choice == "一覧":
                 )
                 conn.commit()
 
-    # 削除後メッセージと自動再描画
+    # --- ループ外で削除メッセージと rerun ---
     if st.session_state.deleted:
-        st.success("タスクを削除しました！")
-        st.session_state.deleted = False
-        st.experimental_rerun()
+        st.session_state.deleted = False  # フラグリセット
+        st.success("タスクを削除しました！")  # 横に表示
+        st.experimental_rerun()  # 安全にページ全体を再描画
 
 # --- 進捗表示 ---
 elif choice == "進捗":
