@@ -1,13 +1,13 @@
 # app.py
 import streamlit as st
 import sqlite3
-from datetime import datetime
+from datetime import date
 
-st.set_page_config(page_title="TODO App", layout="wide")
-
-# --- DB準備 ---
-conn = sqlite3.connect("todo.db", check_same_thread=False)
+# --- SQLite ローカル DB 接続 ---
+conn = sqlite3.connect("todo_local.db", check_same_thread=False)
 c = conn.cursor()
+
+# --- テーブル作成（存在しない場合のみ） ---
 c.execute("""
 CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -20,65 +20,54 @@ CREATE TABLE IF NOT EXISTS tasks (
 """)
 conn.commit()
 
-# --- UI構成 ---
-st.title("TODO App (UI 固め用)")
+# --- ページ設定 ---
+st.set_page_config(page_title="TODOアプリ UI 固め版", layout="centered")
+st.title("TODO アプリ UI 確認用")
 
-# メニュー（固定）
-menu_options = ["仕事", "個人開発", "その他"]
-selected_menu = st.selectbox("メニュー", menu_options)
-
-# --- 中段：タスク一覧 ---
+# --- タスク一覧（上段） ---
 st.subheader("タスク一覧")
-c.execute("""
-SELECT id, title, content, importance, due_date, done
-FROM tasks
-ORDER BY
-  CASE importance
-    WHEN '最優先' THEN 1
-    WHEN '優先' THEN 2
-    ELSE 3
-  END,
-  due_date ASC
-""")
+c.execute("SELECT id, title, importance, due_date, done FROM tasks ORDER BY due_date ASC, importance DESC")
 tasks = c.fetchall()
 
-# スクロールバー付きの一覧表示
+selected_task_id = None
 if tasks:
-    for t in tasks[:5]:  # 5件まで表示
-        id_, title, content, importance, due_date, done = t
-        st.text(f"{title} ({importance}) 期限:{due_date} 完了:{bool(done)}")
-else:
-    st.write("タスクはありません")
+    options = [f"{t[1]} {'✅' if t[4] else ''}" for t in tasks]
+    selected_task_label = st.selectbox("一覧（タスクタイトル）", options)
+    idx = options.index(selected_task_label)
+    selected_task_id = tasks[idx][0]
 
-# --- 下段：タスク追加／編集 ---
-st.subheader("タスク追加／編集")
-with st.form(key="task_form"):
-    title_input = st.text_input("タイトル")
-    content_input = st.text_area("内容")
-    importance_input = st.radio("重要度", ["最優先", "優先", "通常"])
-    due_date_input = st.date_input("期限日", datetime.today())
-    submit_button = st.form_submit_button("追加")
-
-if submit_button:
-    c.execute("""
-        INSERT INTO tasks (title, content, importance, due_date)
-        VALUES (?, ?, ?, ?)
-    """, (title_input, content_input, importance_input, due_date_input.strftime("%Y-%m-%d")))
-    conn.commit()
-    st.success("タスクを追加しました！")
-    st.experimental_rerun()
-
-# --- タスク削除／完了チェック ---
-for t in tasks[:5]:
-    id_, title, content, importance, due_date, done = t
-    col1, col2 = st.columns([1, 1])
+    # 選択タスク詳細表示（下段）
+    task = tasks[idx]
+    st.markdown(f"**タイトル:** {task[1]}")
+    st.markdown(f"**重要度:** {task[2]}")
+    st.markdown(f"**締切日:** {task[3]}")
+    done = st.checkbox("完了", value=bool(task[4]))
+    col1, col2 = st.columns(2)
     with col1:
-        if st.button(f"完了:{title}", key=f"done_{id_}"):
-            c.execute("UPDATE tasks SET done=1 WHERE id=?", (id_,))
+        if st.button("削除"):
+            c.execute("DELETE FROM tasks WHERE id=?", (task[0],))
             conn.commit()
             st.experimental_rerun()
     with col2:
-        if st.button(f"削除:{title}", key=f"del_{id_}"):
-            c.execute("DELETE FROM tasks WHERE id=?", (id_,))
+        if done != bool(task[4]):
+            c.execute("UPDATE tasks SET done=? WHERE id=?", (int(done), task[0]))
             conn.commit()
             st.experimental_rerun()
+else:
+    st.info("タスクはありません。")
+
+# --- タスク追加 / 編集（下段） ---
+st.subheader("タスク追加 / 編集")
+with st.form("task_form", clear_on_submit=True):
+    title = st.text_input("タイトル")
+    content = st.text_area("内容")
+    importance = st.radio("重要度", ["最優先", "優先", "通常"])
+    due_date = st.date_input("締切日", value=date.today())
+    submitted = st.form_submit_button("追加")
+
+    if submitted and title:
+        c.execute("INSERT INTO tasks (title, content, importance, due_date) VALUES (?, ?, ?, ?)",
+                  (title, content, importance, due_date.isoformat()))
+        conn.commit()
+        st.success(f"タスク「{title}」を追加しました！")
+        st.experimental_rerun()
