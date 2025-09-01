@@ -1,9 +1,9 @@
 # app.py
 import streamlit as st
 import sqlite3
-from datetime import date
+from datetime import datetime
 
-# --- DB接続 ---
+# ----- DBセットアップ -----
 conn = sqlite3.connect("tasks.db", check_same_thread=False)
 c = conn.cursor()
 c.execute("""
@@ -13,70 +13,84 @@ CREATE TABLE IF NOT EXISTS tasks (
     title TEXT,
     content TEXT,
     importance TEXT,
-    due_date TEXT
+    due_date TEXT,
+    done INTEGER DEFAULT 0
 )
 """)
 conn.commit()
 
-# --- 固定カテゴリ ---
+# ----- UI設定 -----
+st.set_page_config(page_title="TODOアプリ（UI固め版）", layout="centered")
+
+# ----- メニュー固定 -----
 CATEGORIES = ["仕事", "個人開発", "その他"]
-IMPORTANCE = ["最優先", "優先", "通常"]
 
-# --- UI構成 ---
-st.title("TODOアプリ（UI固め用）")
+st.markdown("## タスク追加 / 編集フォーム")
 
-# 上段：タスク追加／編集フォーム
-st.subheader("タスク追加／編集")
-with st.form("task_form", clear_on_submit=False):
-    selected_id = st.number_input("編集用ID（新規追加は空白）", min_value=0, step=1, value=0)
-    category = st.selectbox("カテゴリ", CATEGORIES)
-    title = st.text_input("タスクタイトル")
-    content = st.text_area("タスク内容")
-    importance = st.radio("重要度", IMPORTANCE)
-    due_date = st.date_input("締切日", value=date.today())
-    submitted = st.form_submit_button("保存")
+with st.form("task_form", clear_on_submit=True):
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        category = st.selectbox("カテゴリ", CATEGORIES)
+    with col2:
+        title = st.text_input("タイトル")
+    content = st.text_area("内容")
+    importance = st.radio("重要度", ["最優先", "優先", "通常"])
+    due_date = st.date_input("締切日")
+    submitted = st.form_submit_button("追加 / 更新")
 
     if submitted:
-        if selected_id == 0:
-            # 新規追加
-            c.execute(
-                "INSERT INTO tasks (category, title, content, importance, due_date) VALUES (?, ?, ?, ?, ?)",
-                (category, title, content, importance, due_date)
-            )
-        else:
-            # 編集
-            c.execute(
-                "UPDATE tasks SET category=?, title=?, content=?, importance=?, due_date=? WHERE id=?",
-                (category, title, content, importance, due_date, selected_id)
-            )
+        c.execute("""
+        INSERT INTO tasks (category, title, content, importance, due_date)
+        VALUES (?, ?, ?, ?, ?)
+        """, (category, title, content, importance, due_date.strftime("%Y-%m-%d")))
         conn.commit()
-        st.success("タスクを保存しました！")
+        st.success(f"タスク『{title}』を追加しました！")
+        st.experimental_rerun()
 
-# 中段：タスク一覧
-st.subheader("タスク一覧")
-c.execute("SELECT id, category, title, importance, due_date FROM tasks ORDER BY due_date ASC, importance ASC")
-tasks = c.fetchall()
-if tasks:
-    import pandas as pd
-    df = pd.DataFrame(tasks, columns=["ID", "カテゴリ", "タイトル", "重要度", "締切日"])
-    st.dataframe(df, height=200)
+# ----- タスク一覧 -----
+st.markdown("## タスク一覧")
+c.execute("""
+SELECT id, category, title, due_date
+FROM tasks
+ORDER BY due_date ASC, title ASC
+""")
+rows = c.fetchall()
+
+if rows:
+    for row in rows:
+        st.write(f"{row[1]} | {row[3]} | {row[2]}")
 else:
-    st.info("タスクはありません。")
+    st.info("タスクは存在しません。")
 
-# 下段：選択タスク詳細
-st.subheader("選択タスク詳細")
-task_id = st.number_input("表示したいタスクIDを入力", min_value=0, step=1, value=0)
-if task_id > 0:
-    c.execute("SELECT * FROM tasks WHERE id=?", (task_id,))
+# ----- 選択タスク詳細表示 -----
+st.markdown("## タスク詳細（編集 / 削除）")
+task_ids = [row[0] for row in rows]
+selected_id = st.selectbox("編集・削除対象タスクを選択", ["未選択"] + task_ids)
+
+if selected_id != "未選択":
+    c.execute("SELECT category, title, content, importance, due_date FROM tasks WHERE id=?", (selected_id,))
     t = c.fetchone()
     if t:
-        st.write(f"**ID:** {t[0]}")
-        st.write(f"**カテゴリ:** {t[1]}")
-        st.write(f"**タイトル:** {t[2]}")
-        st.write(f"**内容:** {t[3]}")
-        st.write(f"**重要度:** {t[4]}")
-        st.write(f"**締切日:** {t[5]}")
-        if st.button("削除"):
-            c.execute("DELETE FROM tasks WHERE id=?", (task_id,))
-            conn.commit()
-            st.success("タスクを削除しました！")
+        with st.form("edit_form"):
+            category_edit = st.selectbox("カテゴリ", CATEGORIES, index=CATEGORIES.index(t[0]))
+            title_edit = st.text_input("タイトル", t[1])
+            content_edit = st.text_area("内容", t[2])
+            importance_edit = st.radio("重要度", ["最優先", "優先", "通常"], index=["最優先","優先","通常"].index(t[3]))
+            due_date_edit = st.date_input("締切日", datetime.strptime(t[4], "%Y-%m-%d"))
+            update_btn = st.form_submit_button("更新")
+            delete_btn = st.form_submit_button("削除")
+
+            if update_btn:
+                c.execute("""
+                UPDATE tasks
+                SET category=?, title=?, content=?, importance=?, due_date=?
+                WHERE id=?
+                """, (category_edit, title_edit, content_edit, importance_edit, due_date_edit.strftime("%Y-%m-%d"), selected_id))
+                conn.commit()
+                st.success("タスクを更新しました！")
+                st.experimental_rerun()
+            if delete_btn:
+                c.execute("DELETE FROM tasks WHERE id=?", (selected_id,))
+                conn.commit()
+                st.success("タスクを削除しました！")
+                st.experimental_rerun()
