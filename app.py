@@ -35,8 +35,8 @@ if choice == "追加":
 
 # --- タスク一覧・編集・削除 ---
 elif choice == "一覧":
-    if 'deleted' not in st.session_state:
-        st.session_state.deleted = False
+    if 'deleted_ids' not in st.session_state:
+        st.session_state.deleted_ids = []
 
     df = pd.read_sql_query("SELECT * FROM tasks", conn)
     if df.empty:
@@ -53,13 +53,12 @@ elif choice == "一覧":
             with col4:
                 checked = st.checkbox("完了", value=bool(row["done"]), key=f"done_{row['id']}")
             with col5:
-                # 削除ボタン押下時はフラグだけ立てる
                 if st.button("削除", key=f"del_{row['id']}"):
                     c.execute("DELETE FROM tasks WHERE id=?", (row["id"],))
                     conn.commit()
-                    st.session_state.deleted = True
+                    st.session_state.deleted_ids.append(row["id"])
 
-            # --- 更新処理 ---
+            # --- 編集更新 ---
             if (new_task != row["task"] or
                 new_cat != row["category"] or
                 str(new_dead) != row["deadline"] or
@@ -70,11 +69,10 @@ elif choice == "一覧":
                 )
                 conn.commit()
 
-    # --- ループ外で削除メッセージと rerun ---
-    if st.session_state.deleted:
-        st.session_state.deleted = False  # フラグリセット
-        st.success("タスクを削除しました！")  # 横に表示
-        st.experimental_rerun()  # 安全にページ全体を再描画
+    # --- 削除メッセージをループ外で表示 ---
+    if st.session_state.deleted_ids:
+        st.success(f"タスクを削除しました！（{len(st.session_state.deleted_ids)}件）")
+        st.session_state.deleted_ids = []
 
 # --- 進捗表示 ---
 elif choice == "進捗":
