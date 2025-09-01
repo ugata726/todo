@@ -35,6 +35,9 @@ if choice == "追加":
 
 # --- タスク一覧・編集・削除 ---
 elif choice == "一覧":
+    if 'deleted' not in st.session_state:
+        st.session_state.deleted = False
+
     df = pd.read_sql_query("SELECT * FROM tasks", conn)
     if df.empty:
         st.info("タスクがありません。")
@@ -53,7 +56,7 @@ elif choice == "一覧":
                 if st.button("削除", key=f"del_{row['id']}"):
                     c.execute("DELETE FROM tasks WHERE id=?", (row["id"],))
                     conn.commit()
-                    st.success("タスクを削除しました！")
+                    st.session_state.deleted = True
 
             # --- 更新処理 ---
             if (new_task != row["task"] or
@@ -65,6 +68,12 @@ elif choice == "一覧":
                     (new_task, new_cat, str(new_dead), int(checked), row["id"])
                 )
                 conn.commit()
+
+    # 削除後メッセージと自動再描画
+    if st.session_state.deleted:
+        st.success("タスクを削除しました！")
+        st.session_state.deleted = False
+        st.experimental_rerun()
 
 # --- 進捗表示 ---
 elif choice == "進捗":
