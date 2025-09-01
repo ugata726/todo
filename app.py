@@ -49,10 +49,11 @@ elif choice == "一覧":
             with col4:
                 checked = st.checkbox("完了", value=bool(row["done"]), key=f"done_{row['id']}")
             with col5:
+                # 削除ボタン
                 if st.button("削除", key=f"del_{row['id']}"):
                     c.execute("DELETE FROM tasks WHERE id=?", (row["id"],))
                     conn.commit()
-                    st.experimental_rerun()
+                    st.success("タスクを削除しました！")
 
             # 更新処理
             if (new_task != row["task"] or 
