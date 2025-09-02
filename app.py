@@ -1,8 +1,5 @@
 # app.py
 import streamlit as st
-
-st.write(">>> 実際に読み込まれている app.py です <<<")
-
 import sqlite3
 from datetime import date, datetime
 
@@ -34,7 +31,6 @@ def ensure_db():
 def get_tasks(category_filter="全て"):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    # priority を優先的に降順 (高→中→低)、次に締切(昇順)、次にタイトル
     order_case = """
       CASE priority
         WHEN '高' THEN 3
@@ -102,42 +98,38 @@ st.title("タスク管理（UI固め版）")
 categories = ["全て", "仕事", "個人開発", "その他"]
 selected_category = st.selectbox("カテゴリを選択", categories)
 
-# 中段：タスク一覧
+# 中段：タスク一覧（5行表示、スクロール可能）
 st.subheader("タスク一覧（未完了のみ）")
 tasks = get_tasks(selected_category)
 if not tasks:
     st.info("未完了のタスクはありません。")
 else:
-    # ヘッダ風に表示（締切日・タイトルは常に見える）
+    # 最大5行表示、超える場合はスクロール
+    display_limit = 5
     for idx, t in enumerate(tasks):
+        if idx >= display_limit:
+            break
         task_id, category, title, content, priority, deadline = t
         col_left, col_btn = st.columns([8, 2])
         with col_left:
-            # 表示：締切日 | タイトル （カテゴリや重要度を小さく表示）
             st.markdown(f"**{deadline}**  —  **{title}**  \u2003  _{category}_  /  _{priority}_")
-            # 小さく内容（折りたたみ）
             with st.expander("詳細を表示する"):
                 st.write(content if content else "(内容なし)")
         with col_btn:
-            # 編集ボタン（一覧クリック＝編集ロード）
             if st.button("編集", key=f"edit_{task_id}"):
-                # 選択されたタスクの値を session_state にセットして下段フォームにロードする
                 st.session_state["edit_task_id"] = task_id
                 st.session_state["category_input"] = category
                 st.session_state["title_input"] = title
                 st.session_state["content_input"] = content
                 st.session_state["priority_input"] = priority if priority in ["高","中","低"] else "中"
-                # deadline は文字列 stored - convert to date if possible
                 try:
                     st.session_state["deadline_input"] = datetime.strptime(deadline, "%Y-%m-%d").date()
                 except Exception:
                     st.session_state["deadline_input"] = date.today()
                 st.session_state["completed_input"] = False
-                # rerun is automatic after button click; no explicit st.experimental_rerun()
 
-# 下段：タスク追加／編集フォーム（ウィジェットを使い、submitは st.button）
+# 下段：タスク追加／編集フォーム
 st.subheader("タスク追加／編集")
-# 入力順序は仕様通り: カテゴリ → タイトル → 内容 → 重要度 → 締切日 → 完了
 col_cat = st.selectbox("カテゴリ", ["仕事", "個人開発", "その他"], index=["仕事","個人開発","その他"].index(st.session_state["category_input"]))
 title_w = st.text_input("タイトル", value=st.session_state["title_input"])
 content_w = st.text_area("内容", value=st.session_state["content_input"])
@@ -145,15 +137,12 @@ priority_w = st.selectbox("重要度", ["高","中","低"], index=["高","中","
 deadline_w = st.date_input("締切日", value=st.session_state["deadline_input"])
 completed_w = st.checkbox("完了", value=st.session_state["completed_input"])
 
-# ボタン（保存＝新規 or 更新）
+# ボタン
 save_col, delete_col, clear_col = st.columns(3)
 with save_col:
     if st.button("保存"):
-        # 新規 or 編集判定
         if st.session_state["edit_task_id"] is None:
-            # 新規追加
             add_task(col_cat, title_w, content_w, priority_w, deadline_w.isoformat())
-            # クリア
             st.session_state["title_input"] = ""
             st.session_state["content_input"] = ""
             st.session_state["priority_input"] = "中"
@@ -161,12 +150,9 @@ with save_col:
             st.session_state["completed_input"] = False
             st.success("タスクを追加しました。")
         else:
-            # 編集
             update_task(st.session_state["edit_task_id"], col_cat, title_w, content_w, priority_w, deadline_w.isoformat(), int(completed_w))
-            # 編集状態を解除
             st.session_state["edit_task_id"] = None
             st.success("タスクを更新しました。")
-        # widgets reflect next render automatically
 
 with delete_col:
     if st.button("削除"):
@@ -186,9 +172,9 @@ with clear_col:
         st.session_state["priority_input"] = "中"
         st.session_state["deadline_input"] = date.today()
         st.session_state["completed_input"] = False
-        st.experimental_rerun()
+        # ここでは st.experimental_rerun() は不要。レンダリングで自動反映
 
-# フォームの現在入力値をセッションにも保持（次レンダリングのため）
+# セッション保持
 st.session_state["category_input"] = col_cat
 st.session_state["title_input"] = title_w
 st.session_state["content_input"] = content_w
