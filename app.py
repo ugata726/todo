@@ -1,62 +1,61 @@
 # app.py
 import streamlit as st
 import sqlite3
-from datetime import datetime
+from datetime import date
 
 DB_FILE = "tasks.db"
 
-# DB初期化（UI固め用、毎回初期化可能）
+# --- DB初期化 ---
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("""
+    c.execute('''
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             category TEXT,
+            deadline TEXT,
+            priority TEXT,
             title TEXT,
             content TEXT,
-            priority TEXT,
-            deadline TEXT,
             completed INTEGER DEFAULT 0
         )
-    """)
+    ''')
     conn.commit()
     conn.close()
 
 init_db()
 
-# DB接続
+# --- タスク取得 ---
 def get_tasks(selected_category):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     if selected_category == "全て":
-        c.execute("SELECT id, category, title, content, priority, deadline FROM tasks WHERE completed=0 ORDER BY deadline, priority DESC, title")
+        c.execute("SELECT id, category, deadline, priority, title, content FROM tasks WHERE completed=0 ORDER BY deadline, priority DESC, title")
     else:
-        c.execute("SELECT id, category, title, content, priority, deadline FROM tasks WHERE completed=0 AND category=? ORDER BY deadline, priority DESC, title", (selected_category,))
-    tasks = c.fetchall()
+        c.execute("SELECT id, category, deadline, priority, title, content FROM tasks WHERE completed=0 AND category=? ORDER BY deadline, priority DESC, title", (selected_category,))
+    rows = c.fetchall()
     conn.close()
-    return tasks
+    return rows
 
-# タスク追加
-def add_task(category, title, content, priority, deadline):
+# --- タスク追加 ---
+def add_task(category, deadline, priority, title, content, completed):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("INSERT INTO tasks (category, title, content, priority, deadline) VALUES (?, ?, ?, ?, ?)",
-              (category, title, content, priority, deadline))
+    c.execute("INSERT INTO tasks (category, deadline, priority, title, content, completed) VALUES (?, ?, ?, ?, ?, ?)",
+              (category, deadline, priority, title, content, completed))
     conn.commit()
     conn.close()
 
-# タスク更新
-def update_task(task_id, category, title, content, priority, deadline, completed):
+# --- タスク更新 ---
+def update_task(task_id, category, deadline, priority, title, content, completed):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("""UPDATE tasks SET category=?, title=?, content=?, priority=?, deadline=?, completed=?
-                 WHERE id=?""",
-              (category, title, content, priority, deadline, completed, task_id))
+    c.execute("UPDATE tasks SET category=?, deadline=?, priority=?, title=?, content=?, completed=? WHERE id=?",
+              (category, deadline, priority, title, content, completed, task_id))
     conn.commit()
     conn.close()
 
-# タスク削除
+# --- タスク削除 ---
 def delete_task(task_id):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -65,7 +64,7 @@ def delete_task(task_id):
     conn.close()
 
 # --- UI ---
-st.title("タスク管理")
+st.title("タスク管理アプリ (UI固め完全版)")
 
 # 上段：カテゴリ選択
 categories = ["全て", "仕事", "個人開発", "その他"]
@@ -73,37 +72,36 @@ selected_category = st.selectbox("カテゴリ選択", categories)
 
 # 中段：タスク一覧
 tasks = get_tasks(selected_category)
-st.subheader("タスク一覧")
+st.subheader("タスク一覧（完了済み非表示）")
+task_table = []
 for t in tasks:
-    task_id, category, title, content, priority, deadline = t
-    st.write(f"**{title}** | {category} | {priority} | {deadline}")
-    if st.button(f"編集: {title}", key=f"edit_{task_id}"):
-        st.session_state["edit_task"] = t
-    if st.button(f"削除: {title}", key=f"del_{task_id}"):
-        delete_task(task_id)
-        st.experimental_rerun()
+    task_table.append(f"{t[1]} | {t[3]} | {t[2]} | {t[4]}")  # カテゴリ | 重要度 | 締切 | タイトル
+st.text_area("一覧表示", value="\n".join(task_table), height=200, disabled=True)
 
-# 下段：タスク追加・編集フォーム
-st.subheader("タスク追加／編集")
-if "edit_task" in st.session_state:
-    task = st.session_state["edit_task"]
-    task_id, category, title, content, priority, deadline = task
-else:
-    task_id, category, title, content, priority, deadline = None, "仕事", "", "", "中", datetime.today().strftime("%Y-%m-%d")
+# 下段：タスク追加・編集・削除フォーム
+st.subheader("タスク追加／編集／削除")
+with st.form("task_form"):
+    task_id = st.number_input("編集・削除する場合はIDを入力（新規追加は空白）", min_value=0, step=1)
+    category = st.selectbox("カテゴリ", ["仕事", "個人開発", "その他"])
+    deadline = st.date_input("締切日", value=date.today())
+    priority = st.selectbox("重要度", ["高", "中", "低"])
+    title = st.text_input("タイトル")
+    content = st.text_area("内容")
+    completed = st.checkbox("完了")
+    submit = st.form_submit_button("保存")
 
-with st.form(key="task_form"):
-    category = st.selectbox("カテゴリ", ["仕事", "個人開発", "その他"], index=["仕事", "個人開発", "その他"].index(category))
-    title = st.text_input("タイトル", value=title)
-    content = st.text_area("内容", value=content)
-    priority = st.selectbox("重要度", ["高", "中", "低"], index=["高","中","低"].index(priority))
-    deadline = st.date_input("締切日", value=datetime.strptime(deadline, "%Y-%m-%d"))
-    completed = st.checkbox("完了", value=False)
-    submit_btn = st.form_submit_button("保存")
-
-if submit_btn:
-    if task_id is None:
-        add_task(category, title, content, priority, deadline.strftime("%Y-%m-%d"))
+if submit:
+    if task_id > 0:
+        update_task(task_id, category, deadline.isoformat(), priority, title, content, int(completed))
+        st.success("タスクを更新しました。")
     else:
-        update_task(task_id, category, title, content, priority, deadline.strftime("%Y-%m-%d"), int(completed))
-        del st.session_state["edit_task"]
-    st.experimental_rerun()
+        add_task(category, deadline.isoformat(), priority, title, content, int(completed))
+        st.success("新規タスクを追加しました。")
+
+# --- タスク削除 ---
+with st.form("delete_form"):
+    del_id = st.number_input("削除するタスクIDを入力", min_value=0, step=1)
+    del_submit = st.form_submit_button("削除")
+if del_submit and del_id > 0:
+    delete_task(del_id)
+    st.success("タスクを削除しました。")
