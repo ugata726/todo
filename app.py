@@ -1,5 +1,8 @@
 # app.py
 import streamlit as st
+
+st.write(">>> 実際に読み込まれている app.py です <<<")
+
 import sqlite3
 from datetime import date, datetime
 
