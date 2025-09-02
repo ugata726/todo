@@ -2,11 +2,12 @@
 import streamlit as st
 import sqlite3
 from datetime import date, datetime
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
 
 DB_FILE = "tasks.db"
 
 # -----------------------------
-# DB初期化（既存データを壊さない）
+# DB初期化
 # -----------------------------
 def ensure_db():
     conn = sqlite3.connect(DB_FILE)
@@ -40,9 +41,18 @@ def get_tasks(category_filter="全て"):
       END DESC
     """
     if category_filter == "全て":
-        c.execute(f"SELECT id, category, title, content, priority, deadline FROM tasks WHERE completed=0 ORDER BY {order_case}, deadline ASC, title ASC")
+        c.execute(f"""
+        SELECT id, category, title, content, priority, deadline, completed
+        FROM tasks
+        ORDER BY completed ASC, {order_case}, deadline ASC, title ASC
+        """)
     else:
-        c.execute(f"SELECT id, category, title, content, priority, deadline FROM tasks WHERE completed=0 AND category=? ORDER BY {order_case}, deadline ASC, title ASC", (category_filter,))
+        c.execute(f"""
+        SELECT id, category, title, content, priority, deadline, completed
+        FROM tasks
+        WHERE category=?
+        ORDER BY completed ASC, {order_case}, deadline ASC, title ASC
+        """, (category_filter,))
     rows = c.fetchall()
     conn.close()
     return rows
@@ -50,16 +60,21 @@ def get_tasks(category_filter="全て"):
 def add_task(category, title, content, priority, deadline):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("INSERT INTO tasks (category, title, content, priority, deadline, completed) VALUES (?, ?, ?, ?, ?, 0)",
-              (category, title, content, priority, deadline))
+    c.execute("""
+        INSERT INTO tasks (category, title, content, priority, deadline, completed)
+        VALUES (?, ?, ?, ?, ?, 0)
+    """, (category, title, content, priority, deadline))
     conn.commit()
     conn.close()
 
 def update_task(task_id, category, title, content, priority, deadline, completed):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("UPDATE tasks SET category=?, title=?, content=?, priority=?, deadline=?, completed=? WHERE id=?",
-              (category, title, content, priority, deadline, completed, task_id))
+    c.execute("""
+        UPDATE tasks
+        SET category=?, title=?, content=?, priority=?, deadline=?, completed=?
+        WHERE id=?
+    """, (category, title, content, priority, deadline, completed, task_id))
     conn.commit()
     conn.close()
 
@@ -71,7 +86,7 @@ def delete_task(task_id):
     conn.close()
 
 # -----------------------------
-# セッション初期化（選択状態など）
+# セッション初期化
 # -----------------------------
 if "edit_task_id" not in st.session_state:
     st.session_state["edit_task_id"] = None
@@ -92,46 +107,49 @@ if "completed_input" not in st.session_state:
 # UI
 # -----------------------------
 ensure_db()
-st.title("タスク管理（仕様完全版）")
+st.title("タスク管理（仕様準拠 完全版）")
 
-# 上段：カテゴリ選択
+# 上段: カテゴリ選択
 categories = ["全て", "仕事", "個人開発", "その他"]
 selected_category = st.selectbox("カテゴリを選択", categories)
 
-# 中段：タスク一覧（表形式、5行表示＋スクロール）
-st.subheader("タスク一覧（未完了のみ）")
+# 中段: タスク一覧（st-aggrid）
 tasks = get_tasks(selected_category)
-
-if not tasks:
-    st.info("未完了のタスクはありません。")
+st.subheader("タスク一覧（未完了・完了混在）")
+if tasks:
+    import pandas as pd
+    df = pd.DataFrame(tasks, columns=["id","カテゴリ","タイトル","内容","重要度","締切","完了"])
+    gb = GridOptionsBuilder.from_dataframe(df)
+    gb.configure_selection("single", use_checkbox=False)
+    gb.configure_columns(["id","内容"], hide=True)
+    gb.configure_grid_options(domLayout='normal', rowHeight=35)
+    gb.configure_default_column(editable=False)
+    grid_options = gb.build()
+    
+    grid_response = AgGrid(
+        df,
+        gridOptions=grid_options,
+        height=5*35 + 50,  # 5行表示
+        update_mode=GridUpdateMode.SELECTION_CHANGED,
+        fit_columns_on_grid_load=True
+    )
+    selected_rows = grid_response["selected_rows"]
+    if selected_rows:
+        sel = selected_rows[0]
+        st.session_state["edit_task_id"] = sel["id"]
+        st.session_state["category_input"] = sel["カテゴリ"]
+        st.session_state["title_input"] = sel["タイトル"]
+        st.session_state["content_input"] = sel["内容"]
+        st.session_state["priority_input"] = sel["重要度"]
+        try:
+            st.session_state["deadline_input"] = datetime.strptime(sel["締切"], "%Y-%m-%d").date()
+        except:
+            st.session_state["deadline_input"] = date.today()
+        st.session_state["completed_input"] = bool(sel["完了"])
 else:
-    # 5行表示＋スクロール
-    container = st.container()
-    max_rows = 5
-    scroll_index = 0
-    for idx, t in enumerate(tasks):
-        task_id, category, title, content, priority, deadline = t
-        if idx >= max_rows:
-            break
-        cols = container.columns([5, 3, 2, 2])
-        cols[0].write(title)
-        cols[1].write(category)
-        cols[2].write(priority)
-        cols[3].write(deadline)
-        # 選択ボタンで下段フォームにロード
-        if cols[0].button("選択", key=f"select_{task_id}"):
-            st.session_state["edit_task_id"] = task_id
-            st.session_state["category_input"] = category
-            st.session_state["title_input"] = title
-            st.session_state["content_input"] = content
-            st.session_state["priority_input"] = priority
-            try:
-                st.session_state["deadline_input"] = datetime.strptime(deadline, "%Y-%m-%d").date()
-            except Exception:
-                st.session_state["deadline_input"] = date.today()
-            st.session_state["completed_input"] = False
+    st.info("タスクはありません。")
 
-# 下段：タスク追加／編集フォーム
+# 下段: タスク追加・編集フォーム
 st.subheader("タスク追加／編集")
 col_cat = st.selectbox("カテゴリ", ["仕事","個人開発","その他"], index=["仕事","個人開発","その他"].index(st.session_state["category_input"]))
 title_w = st.text_input("タイトル", value=st.session_state["title_input"])
@@ -140,9 +158,7 @@ priority_w = st.selectbox("重要度", ["高","中","低"], index=["高","中","
 deadline_w = st.date_input("締切日", value=st.session_state["deadline_input"])
 completed_w = st.checkbox("完了", value=st.session_state["completed_input"])
 
-# 保存／削除／クリアボタン
 save_col, delete_col, clear_col = st.columns(3)
-
 with save_col:
     if st.button("保存"):
         if st.session_state["edit_task_id"] is None:
@@ -152,22 +168,14 @@ with save_col:
             update_task(st.session_state["edit_task_id"], col_cat, title_w, content_w, priority_w, deadline_w.isoformat(), int(completed_w))
             st.success("タスクを更新しました。")
             st.session_state["edit_task_id"] = None
-        # フォームクリア
-        st.session_state["title_input"] = ""
-        st.session_state["content_input"] = ""
-        st.session_state["priority_input"] = "中"
-        st.session_state["deadline_input"] = date.today()
-        st.session_state["completed_input"] = False
-
 with delete_col:
     if st.button("削除"):
-        if st.session_state["edit_task_id"] is not None:
+        if st.session_state["edit_task_id"]:
             delete_task(st.session_state["edit_task_id"])
+            st.success("タスクを削除しました。")
             st.session_state["edit_task_id"] = None
-            st.success("選択中のタスクを削除しました。")
         else:
-            st.warning("削除するタスクを一覧から選択してください。")
-
+            st.warning("削除するタスクを選択してください。")
 with clear_col:
     if st.button("フォームクリア"):
         st.session_state["edit_task_id"] = None
@@ -177,8 +185,9 @@ with clear_col:
         st.session_state["priority_input"] = "中"
         st.session_state["deadline_input"] = date.today()
         st.session_state["completed_input"] = False
+        st.experimental_rerun()  # これ以外の rerun は不要
 
-# セッションに反映
+# セッション保持
 st.session_state["category_input"] = col_cat
 st.session_state["title_input"] = title_w
 st.session_state["content_input"] = content_w
