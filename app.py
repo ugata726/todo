@@ -92,67 +92,72 @@ if "completed_input" not in st.session_state:
 # UI
 # -----------------------------
 ensure_db()
-st.title("タスク管理（UI固め版）")
+st.title("タスク管理（仕様完全版）")
 
 # 上段：カテゴリ選択
 categories = ["全て", "仕事", "個人開発", "その他"]
 selected_category = st.selectbox("カテゴリを選択", categories)
 
-# 中段：タスク一覧（5行表示、スクロール可能）
+# 中段：タスク一覧（表形式、5行表示＋スクロール）
 st.subheader("タスク一覧（未完了のみ）")
 tasks = get_tasks(selected_category)
+
 if not tasks:
     st.info("未完了のタスクはありません。")
 else:
-    # 最大5行表示、超える場合はスクロール
-    display_limit = 5
+    # 5行表示＋スクロール
+    container = st.container()
+    max_rows = 5
+    scroll_index = 0
     for idx, t in enumerate(tasks):
-        if idx >= display_limit:
-            break
         task_id, category, title, content, priority, deadline = t
-        col_left, col_btn = st.columns([8, 2])
-        with col_left:
-            st.markdown(f"**{deadline}**  —  **{title}**  \u2003  _{category}_  /  _{priority}_")
-            with st.expander("詳細を表示する"):
-                st.write(content if content else "(内容なし)")
-        with col_btn:
-            if st.button("編集", key=f"edit_{task_id}"):
-                st.session_state["edit_task_id"] = task_id
-                st.session_state["category_input"] = category
-                st.session_state["title_input"] = title
-                st.session_state["content_input"] = content
-                st.session_state["priority_input"] = priority if priority in ["高","中","低"] else "中"
-                try:
-                    st.session_state["deadline_input"] = datetime.strptime(deadline, "%Y-%m-%d").date()
-                except Exception:
-                    st.session_state["deadline_input"] = date.today()
-                st.session_state["completed_input"] = False
+        if idx >= max_rows:
+            break
+        cols = container.columns([5, 3, 2, 2])
+        cols[0].write(title)
+        cols[1].write(category)
+        cols[2].write(priority)
+        cols[3].write(deadline)
+        # 選択ボタンで下段フォームにロード
+        if cols[0].button("選択", key=f"select_{task_id}"):
+            st.session_state["edit_task_id"] = task_id
+            st.session_state["category_input"] = category
+            st.session_state["title_input"] = title
+            st.session_state["content_input"] = content
+            st.session_state["priority_input"] = priority
+            try:
+                st.session_state["deadline_input"] = datetime.strptime(deadline, "%Y-%m-%d").date()
+            except Exception:
+                st.session_state["deadline_input"] = date.today()
+            st.session_state["completed_input"] = False
 
 # 下段：タスク追加／編集フォーム
 st.subheader("タスク追加／編集")
-col_cat = st.selectbox("カテゴリ", ["仕事", "個人開発", "その他"], index=["仕事","個人開発","その他"].index(st.session_state["category_input"]))
+col_cat = st.selectbox("カテゴリ", ["仕事","個人開発","その他"], index=["仕事","個人開発","その他"].index(st.session_state["category_input"]))
 title_w = st.text_input("タイトル", value=st.session_state["title_input"])
 content_w = st.text_area("内容", value=st.session_state["content_input"])
 priority_w = st.selectbox("重要度", ["高","中","低"], index=["高","中","低"].index(st.session_state["priority_input"]))
 deadline_w = st.date_input("締切日", value=st.session_state["deadline_input"])
 completed_w = st.checkbox("完了", value=st.session_state["completed_input"])
 
-# ボタン
+# 保存／削除／クリアボタン
 save_col, delete_col, clear_col = st.columns(3)
+
 with save_col:
     if st.button("保存"):
         if st.session_state["edit_task_id"] is None:
             add_task(col_cat, title_w, content_w, priority_w, deadline_w.isoformat())
-            st.session_state["title_input"] = ""
-            st.session_state["content_input"] = ""
-            st.session_state["priority_input"] = "中"
-            st.session_state["deadline_input"] = date.today()
-            st.session_state["completed_input"] = False
             st.success("タスクを追加しました。")
         else:
             update_task(st.session_state["edit_task_id"], col_cat, title_w, content_w, priority_w, deadline_w.isoformat(), int(completed_w))
-            st.session_state["edit_task_id"] = None
             st.success("タスクを更新しました。")
+            st.session_state["edit_task_id"] = None
+        # フォームクリア
+        st.session_state["title_input"] = ""
+        st.session_state["content_input"] = ""
+        st.session_state["priority_input"] = "中"
+        st.session_state["deadline_input"] = date.today()
+        st.session_state["completed_input"] = False
 
 with delete_col:
     if st.button("削除"):
@@ -161,7 +166,7 @@ with delete_col:
             st.session_state["edit_task_id"] = None
             st.success("選択中のタスクを削除しました。")
         else:
-            st.warning("削除するタスクを一覧から「編集」ボタンで選択してください。")
+            st.warning("削除するタスクを一覧から選択してください。")
 
 with clear_col:
     if st.button("フォームクリア"):
@@ -172,9 +177,8 @@ with clear_col:
         st.session_state["priority_input"] = "中"
         st.session_state["deadline_input"] = date.today()
         st.session_state["completed_input"] = False
-        # ここでは st.experimental_rerun() は不要。レンダリングで自動反映
 
-# セッション保持
+# セッションに反映
 st.session_state["category_input"] = col_cat
 st.session_state["title_input"] = title_w
 st.session_state["content_input"] = content_w
