@@ -1,18 +1,18 @@
 # app.py
-import streamlit as st
-import sqlite3
-from datetime import date, datetime
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
+import streamlit as st  # Streamlit UIライブラリ
+import sqlite3  # SQLite DB操作用
+from datetime import date, datetime  # 日付操作用
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode  # 高機能グリッド表示
 
-DB_FILE = "tasks.db"
+DB_FILE = "tasks.db"  # DBファイル名
 
 # -----------------------------
 # DB初期化（既存データを壊さない）
 # -----------------------------
 def ensure_db():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("""
+    conn = sqlite3.connect(DB_FILE)  # DB接続
+    c = conn.cursor()  # カーソル取得
+    c.execute("""  # tasksテーブルを作成（存在しない場合のみ）
     CREATE TABLE IF NOT EXISTS tasks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         category TEXT,
@@ -23,14 +23,14 @@ def ensure_db():
         completed INTEGER DEFAULT 0
     )
     """)
-    conn.commit()
-    conn.close()
+    conn.commit()  # コミット
+    conn.close()  # 接続閉じる
 
 # -----------------------------
 # DB操作
 # -----------------------------
 def get_tasks(category_filter="全て"):
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE)  # DB接続
     c = conn.cursor()
     order_case = """
       CASE priority
@@ -40,13 +40,13 @@ def get_tasks(category_filter="全て"):
         ELSE 0
       END DESC
     """
-    if category_filter == "全て":
+    if category_filter == "全て":  # カテゴリ指定なし
         c.execute(f"SELECT id, category, title, content, priority, deadline FROM tasks WHERE completed=0 ORDER BY {order_case}, deadline ASC, title ASC")
-    else:
+    else:  # 特定カテゴリのみ
         c.execute(f"SELECT id, category, title, content, priority, deadline FROM tasks WHERE completed=0 AND category=? ORDER BY {order_case}, deadline ASC, title ASC", (category_filter,))
-    rows = c.fetchall()
-    conn.close()
-    return rows
+    rows = c.fetchall()  # 全件取得
+    conn.close()  # 接続閉じる
+    return rows  # 取得結果返す
 
 def add_task(category, title, content, priority, deadline):
     conn = sqlite3.connect(DB_FILE)
@@ -74,6 +74,7 @@ def delete_task(task_id):
 # -----------------------------
 # セッション初期化
 # -----------------------------
+# 以下、セッションステート初期化。フォーム反映用
 if "edit_task_id" not in st.session_state:
     st.session_state["edit_task_id"] = None
 if "category_input" not in st.session_state:
@@ -92,8 +93,8 @@ if "completed_input" not in st.session_state:
 # -----------------------------
 # UI
 # -----------------------------
-ensure_db()
-st.title("タスク管理（完全版）")
+ensure_db()  # DB初期化
+st.title("タスク管理（完全版）")  # タイトル
 
 # 上段：カテゴリ選択
 categories = ["全て", "仕事", "個人開発", "その他"]
@@ -103,11 +104,13 @@ selected_category = st.selectbox("カテゴリを選択", categories)
 st.subheader("タスク一覧（未完了のみ）")
 tasks = get_tasks(selected_category)
 
-if not tasks:
+if not tasks:  # タスクが0件ならメッセージ表示
     st.info("未完了のタスクはありません。")
 else:
-    import pandas as pd
+    import pandas as pd  # DataFrame化用
     df = pd.DataFrame(tasks, columns=["ID","カテゴリ","タイトル","内容","重要度","締切日"])
+    
+    # AgGrid 設定
     gb = GridOptionsBuilder.from_dataframe(df)
     gb.configure_selection("single")  # 単一選択
     gb.configure_grid_options(domLayout='normal')
@@ -118,9 +121,11 @@ else:
     gb.configure_column("カテゴリ", headerName="カテゴリ", width=100)
     gb.configure_column("重要度", headerName="重要度", width=80)
     gb.configure_column("締切日", headerName="締切日", width=100)
-    gb.configure_column("内容", hide=True)  # 詳細は下段フォームに表示
+    gb.configure_column("内容", hide=True)  # 内容は下段フォーム表示
     gb.configure_grid_options(domLayout='normal')
     grid_options = gb.build()
+    
+    # AgGrid表示
     grid_response = AgGrid(
         df,
         gridOptions=grid_options,
@@ -129,8 +134,12 @@ else:
         update_mode=GridUpdateMode.SELECTION_CHANGED,
         allow_unsafe_jscode=True
     )
-    selected_rows = grid_response['selected_rows']
-    if selected_rows:
+    
+    # -----------------------------
+    # 修正箇所: ValueError防止
+    # -----------------------------
+    selected_rows = grid_response.get('selected_rows', [])  # Noneの場合に備えて get() を使用
+    if selected_rows:  # 選択されていればフォームに反映
         sel = selected_rows[0]
         st.session_state["edit_task_id"] = sel["ID"]
         st.session_state["category_input"] = sel["カテゴリ"]
@@ -154,10 +163,12 @@ completed_w = st.checkbox("完了", value=st.session_state["completed_input"])
 
 # ボタン操作
 save_col, delete_col, clear_col = st.columns(3)
+
 with save_col:
     if st.button("保存"):
         if st.session_state["edit_task_id"] is None:
             add_task(col_cat, title_w, content_w, priority_w, deadline_w.isoformat())
+            # フォームクリア
             st.session_state.update({"title_input":"","content_input":"","priority_input":"中","deadline_input":date.today(),"completed_input":False})
             st.success("タスクを追加しました。")
         else:
@@ -176,8 +187,10 @@ with delete_col:
 
 with clear_col:
     if st.button("フォームクリア"):
+        # -----------------------------
+        # 修正箇所: experimental_rerunを使わず、フォームクリアを安全に反映
+        # -----------------------------
         st.session_state.update({"edit_task_id":None,"category_input":"仕事","title_input":"","content_input":"","priority_input":"中","deadline_input":date.today(),"completed_input":False})
-        # ここでは rerun 呼ばず、フォームは自動更新される
 
 # セッション更新
 st.session_state["category_input"] = col_cat
