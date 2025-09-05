@@ -1,5 +1,6 @@
 # app.py
 import streamlit as st  # Streamlit UIライブラリ
+import os
 import sqlite3  # SQLite DB操作用
 from datetime import date, datetime  # 日付操作用
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode  # 高機能グリッド表示
@@ -10,21 +11,24 @@ DB_FILE = "tasks.db"  # DBファイル名
 # DB初期化（既存データを壊さない）
 # -----------------------------
 def ensure_db():
-    conn = sqlite3.connect(DB_FILE)  # DB接続
-    c = conn.cursor()  # カーソル取得
-    c.execute("""  # tasksテーブルを作成（存在しない場合のみ）
-    CREATE TABLE IF NOT EXISTS tasks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        category TEXT,
-        title TEXT,
-        content TEXT,
-        priority TEXT,
-        deadline TEXT,
-        completed INTEGER DEFAULT 0
-    )
+    # Cloud上では毎回削除して新規作成
+    if os.path.exists(DB_FILE):
+        os.remove(DB_FILE)
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category TEXT,
+            title TEXT,
+            content TEXT,
+            priority TEXT,
+            deadline TEXT,
+            completed INTEGER DEFAULT 0
+        )
     """)
-    conn.commit()  # コミット
-    conn.close()  # 接続閉じる
+    conn.commit()
+    conn.close()
 
 # -----------------------------
 # DB操作
