@@ -11,24 +11,23 @@ DB_FILE = "tasks.db"  # DBファイル名
 # DB初期化（既存データを壊さない）
 # -----------------------------
 def ensure_db():
-    # Cloud上では毎回削除して新規作成
-    if os.path.exists(DB_FILE):
-        os.remove(DB_FILE)
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            category TEXT,
-            title TEXT,
-            content TEXT,
-            priority TEXT,
-            deadline TEXT,
-            completed INTEGER DEFAULT 0
-        )
-    """)
-    conn.commit()
-    conn.close()
+    """DB が存在しない場合のみ作成"""
+    if not os.path.exists(DB_FILE):
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT,
+                title TEXT,
+                content TEXT,
+                priority TEXT,
+                deadline TEXT,
+                completed INTEGER DEFAULT 0
+            )
+        """)
+        conn.commit()
+        conn.close()
 
 # -----------------------------
 # DB操作
@@ -191,11 +190,24 @@ with delete_col:
 
 with clear_col:
     if st.button("フォームクリア"):
-        # -----------------------------
-        # 修正箇所: experimental_rerunを使わず、フォームクリアを安全に反映
-        # -----------------------------
-        st.session_state.update({"edit_task_id":None,"category_input":"仕事","title_input":"","content_input":"","priority_input":"中","deadline_input":date.today(),"completed_input":False})
-
+        st.session_state.update({
+            "edit_task_id": None,
+            "category_input": "仕事",
+            "title_input": "",
+            "content_input": "",
+            "priority_input": "中",
+            "deadline_input": date.today(),
+            "completed_input": False
+        })
+        # フォームに値を再設定
+        col_cat = st.selectbox("カテゴリ", ["仕事","個人開発","その他"],
+                               index=["仕事","個人開発","その他"].index(st.session_state["category_input"]))
+        title_w = st.text_input("タイトル", value=st.session_state["title_input"])
+        content_w = st.text_area("内容", value=st.session_state["content_input"])
+        priority_w = st.selectbox("重要度", ["高","中","低"],
+                                  index=["高","中","低"].index(st.session_state["priority_input"]))
+        deadline_w = st.date_input("締切日", value=st.session_state["deadline_input"])
+        completed_w = st.checkbox("完了", value=st.session_state["completed_input"])
 # セッション更新
 st.session_state["category_input"] = col_cat
 st.session_state["title_input"] = title_w
